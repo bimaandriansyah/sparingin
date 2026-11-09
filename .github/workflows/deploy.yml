@@ -51,7 +51,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    environment: production
+    # No `environment:` — Environments aren't available for private repos on GitHub Free; secrets are repo-level.
     steps:
       - uses: actions/checkout@v4
 
