@@ -1,0 +1,19 @@
+{
+    "id": "/dashboard",
+    "name": "SparingIn Admin",
+    "short_name": "SparingIn Admin",
+    "description": "Kelola komunitas, event, dan konfirmasi pembayaran pemain.",
+    "start_url": "/dashboard",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#ffffff",
+    "icons": [
+        { "src": "/icon-admin-192.png", "sizes": "192x192", "type": "image/png" },
+        { "src": "/icon-admin-512.png", "sizes": "512x512", "type": "image/png" }
+    ],
+    "shortcuts": [
+        { "name": "Komunitas", "url": "/dashboard", "icons": [{ "src": "/icon-admin-192.png", "sizes": "192x192" }] },
+        { "name": "Profil & Keamanan", "url": "/settings/profile", "icons": [{ "src": "/icon-admin-192.png", "sizes": "192x192" }] }
+    ]
+}

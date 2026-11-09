@@ -1,0 +1,104 @@
+# CI/CD for cPanel shared hosting over FTP (no SSH on the server).
+#
+# push to main → run tests → build → upload changed files over FTP:
+#   deploy/dist/stage/sparingin/    → ~/sparingin/     (app, outside the web root)
+#   deploy/dist/stage/public_html/  → ~/public_html/   (web root)
+# The upload also drops storage/app/deploy-pending; a cPanel cron running
+# `php artisan sparingin:post-deploy` then migrates the DB and clears caches once.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   FTP_SERVER, FTP_USERNAME, FTP_PASSWORD   (main cPanel FTP account, rooted at /home/<user>)
+# Optional repository variables:
+#   FTP_PROTOCOL (ftps | ftp, default ftps), FTP_APP_DIR (default sparingin/), FTP_WEB_DIR (default public_html/)
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false # never cut an FTP upload in half
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3' # same floor as the hosting (composer platform is pinned to 8.3)
+          extensions: gd, mbstring, pdo_sqlite, fileinfo, intl
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: npm ci
+      - run: npm run build
+      - run: cp .env.example .env && php artisan key:generate
+      - run: php artisan test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: gd, mbstring, fileinfo, intl
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Stage app + web root
+        run: bash deploy/stage.sh
+
+      - name: Flag release for the post-deploy cron
+        run: echo "${GITHUB_SHA::7} $(date -u +%FT%TZ)" > deploy/dist/stage/sparingin/storage/app/deploy-pending
+
+      - name: Upload app (~/sparingin)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          local-dir: ./deploy/dist/stage/sparingin/
+          server-dir: ${{ vars.FTP_APP_DIR || 'sparingin/' }}
+          # Never touch server-only files: secrets, logs, sessions, caches, user uploads.
+          exclude: |
+            .env
+            storage/logs/**
+            storage/framework/**
+            storage/app/private/**
+            storage/app/public/**
+
+      - name: Upload web root (~/public_html)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ${{ vars.FTP_PROTOCOL || 'ftps' }}
+          local-dir: ./deploy/dist/stage/public_html/
+          server-dir: ${{ vars.FTP_WEB_DIR || 'public_html/' }}
+          exclude: |
+            storage/**
