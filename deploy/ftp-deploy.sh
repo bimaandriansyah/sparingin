@@ -11,16 +11,18 @@
 # Usage:  bash deploy/ftp-deploy.sh            deploy
 #         bash deploy/ftp-deploy.sh --dry-run  show what would be uploaded/deleted, upload nothing
 #         bash deploy/ftp-deploy.sh --skip-tests
+#         bash deploy/ftp-deploy.sh --check      only test the FTP login + list the remote folders
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STAGE="$ROOT/deploy/dist/stage"
 LAST="$ROOT/deploy/dist/last-deployed"
 CONF="$ROOT/deploy/ftp.env"
-DRY=0; TESTS=1
+DRY=0; TESTS=1; CHECK=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY=1 ;;
+    --check) CHECK=1 ;;
     --skip-tests) TESTS=0 ;;
     *) echo "Unknown option: $arg"; exit 2 ;;
   esac
@@ -28,13 +30,43 @@ done
 
 command -v lftp >/dev/null || { echo "✗ lftp not installed: brew install lftp"; exit 1; }
 [[ -f "$CONF" ]] || { echo "✗ $CONF missing — copy deploy/ftp.env.example and fill it in"; exit 1; }
-# shellcheck disable=SC1090
-source "$CONF"
+# Read KEY=VALUE lines literally (no shell evaluation), so passwords with & $ ; ! etc. are safe.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ "$line" =~ ^[[:space:]]*(#|$) ]] && continue
+  key="${line%%=*}"; value="${line#*=}"
+  key="${key//[[:space:]]/}"
+  # strip one pair of surrounding quotes, if any
+  if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then value="${BASH_REMATCH[1]}"; fi
+  case "$key" in
+    FTP_HOST|FTP_USER|FTP_PASSWORD|FTP_PROTOCOL|FTP_VERIFY_CERT|FTP_APP_DIR|FTP_WEB_DIR) printf -v "$key" '%s' "$value" ;;
+  esac
+done < "$CONF"
 : "${FTP_HOST:?}" "${FTP_USER:?}" "${FTP_PASSWORD:?}"
 FTP_PROTOCOL="${FTP_PROTOCOL:-ftps}"
 FTP_APP_DIR="${FTP_APP_DIR:-sparingin}"
 FTP_WEB_DIR="${FTP_WEB_DIR:-public_html}"
 FTP_VERIFY_CERT="${FTP_VERIFY_CERT:-yes}"
+
+# Run lftp commands on the server. Password goes via env (not argv), so it's not in the process list.
+ftp_run() {
+  local ssl="set ftp:ssl-allow no;"
+  if [[ "$FTP_PROTOCOL" == "ftps" ]]; then
+    ssl="set ftp:ssl-force yes; set ftp:ssl-protect-data yes; set ssl:verify-certificate $FTP_VERIFY_CERT;"
+  fi
+  local open="open -u \"$FTP_USER\" --env-password \"$FTP_HOST\""
+  [[ "$FTP_HOST" == file://* ]] && open="open \"$FTP_HOST\""   # local folder target, for testing the script
+  LFTP_PASSWORD="$FTP_PASSWORD" lftp -c "
+    set net:max-retries 3; set net:timeout 30; set cmd:fail-exit yes; $ssl
+    $open
+    $1
+  "
+}
+
+if (( CHECK )); then
+  echo "→ Logging in to $FTP_HOST as $FTP_USER ($FTP_PROTOCOL)"
+  ftp_run "echo '[home]'; cls -1; echo '[$FTP_APP_DIR]'; cls -1 \"$FTP_APP_DIR\"; echo '[$FTP_WEB_DIR]'; cls -1 \"$FTP_WEB_DIR\"" | head -60
+  echo "✓ FTP login works"; exit 0
+fi
 
 cd "$ROOT"
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
@@ -84,18 +116,7 @@ echo "$RELEASE" > "$STAGE/deploy-pending"
 printf 'mkdir -p -f "%s/storage/app"\nput -O "%s/storage/app" "%s"\n' "$FTP_APP_DIR" "$FTP_APP_DIR" "$STAGE/deploy-pending" >> "$CMDS"
 
 echo "→ Uploading over $FTP_PROTOCOL to $FTP_HOST"
-SSL_SETTINGS="set ftp:ssl-allow no;"
-if [[ "$FTP_PROTOCOL" == "ftps" ]]; then
-  SSL_SETTINGS="set ftp:ssl-force yes; set ftp:ssl-protect-data yes; set ssl:verify-certificate $FTP_VERIFY_CERT;"
-fi
-# Password via env (not argv), so it doesn't show up in the process list.
-if [[ "$FTP_HOST" == file://* ]]; then OPEN="open \"$FTP_HOST\""   # local folder target, for testing the script
-else OPEN="open -u \"$FTP_USER\" --env-password \"$FTP_HOST\""; fi
-LFTP_PASSWORD="$FTP_PASSWORD" lftp -c "
-  set net:max-retries 3; set net:timeout 30; set cmd:fail-exit yes; $SSL_SETTINGS
-  $OPEN
-  source \"$CMDS\"
-"
+ftp_run "source \"$CMDS\""
 
 # Remember what's on the server now, for the next diff.
 rsync -a --delete "$STAGE/sparingin/" "$LAST/sparingin/"
