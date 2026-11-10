@@ -29,7 +29,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -37,7 +37,7 @@ jobs:
           extensions: gd, mbstring, pdo_sqlite, fileinfo, intl
           coverage: none
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     # No `environment:` — Environments aren't available for private repos on GitHub Free; secrets are repo-level.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -61,7 +61,7 @@ jobs:
           extensions: gd, mbstring, fileinfo, intl
           coverage: none
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -75,7 +75,7 @@ jobs:
         run: echo "${GITHUB_SHA::7} $(date -u +%FT%TZ)" > deploy/dist/stage/sparingin/storage/app/deploy-pending
 
       - name: Upload app (~/sparingin)
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
@@ -92,7 +92,7 @@ jobs:
             storage/app/public/**
 
       - name: Upload web root (~/public_html)
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
