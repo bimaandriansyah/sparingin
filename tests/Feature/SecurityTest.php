@@ -99,4 +99,28 @@ class SecurityTest extends TestCase
         $this->postJson(route('register.store'), ['name' => '', 'phone' => '0812', 'password' => 'a', 'password_confirmation' => 'b'])
             ->assertStatus(422)->assertJsonValidationErrors(['name', 'password']);
     }
+
+    public function test_owner_can_delete_event_with_its_files_and_open_a_team_lineup(): void
+    {
+        $reg = $this->event->register($this->event->slots()->first(), 'Budi', '081200000009', null);
+        Storage::put('proofs/p.jpg', 'x');
+        Storage::disk('public')->put('photos/f.jpg', 'x');
+        $reg->update(['proof_path' => 'proofs/p.jpg', 'photo_path' => 'photos/f.jpg']);
+        $team = $this->event->teams()->first();
+
+        Livewire::actingAs($this->event->community->user)->test(\App\Livewire\Admin\EventShow::class, ['event' => $this->event])
+            ->call('toggleTeam', $team->id)->assertSee('Budi')
+            ->call('deleteEvent')->assertRedirect(route('admin.communities.show', $this->event->community));
+
+        $this->assertModelMissing($this->event);
+        $this->assertDatabaseCount('registrations', 0);
+        Storage::assertMissing('proofs/p.jpg');
+        Storage::disk('public')->assertMissing('photos/f.jpg');
+    }
+
+    public function test_stranger_cannot_open_or_delete_someone_elses_event(): void
+    {
+        $this->actingAs(\App\Models\User::factory()->create())
+            ->get(route('admin.events.show', $this->event))->assertForbidden();
+    }
 }

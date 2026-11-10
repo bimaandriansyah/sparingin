@@ -71,6 +71,15 @@ class Event extends Model
         }
     }
 
+    /** Delete the event with its uploaded files; teams, slots and registrations cascade in the DB. */
+    public function deleteWithFiles(): void
+    {
+        $files = $this->registrations()->get(['photo_path', 'proof_path']);
+        $this->delete();
+        Storage::delete($files->pluck('proof_path')->filter()->all());
+        Storage::disk('public')->delete($files->pluck('photo_path')->push($this->poster_path)->filter()->all());
+    }
+
     /** "Rp30K–50K" style label. */
     public function priceLabel(): string
     {

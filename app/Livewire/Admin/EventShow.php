@@ -15,6 +15,10 @@ class EventShow extends Component
     #[Url]
     public string $filter = 'pending';
 
+    /** Team whose line-up is expanded. */
+    #[Url(as: 'tim')]
+    public ?int $openTeam = null;
+
     public function mount(Event $event): void
     {
         abort_unless($event->community->user_id === auth()->id(), 403);
@@ -40,6 +44,19 @@ class EventShow extends Component
         $this->event->update(['status' => $this->event->status === 'open' ? 'closed' : 'open']);
     }
 
+    public function toggleTeam(int $teamId): void
+    {
+        $this->openTeam = $this->openTeam === $teamId ? null : $teamId;
+    }
+
+    public function deleteEvent()
+    {
+        $community = $this->event->community;
+        $this->event->deleteWithFiles();
+
+        return $this->redirectRoute('admin.communities.show', $community, navigate: true);
+    }
+
     public function render()
     {
         $registrations = $this->event->registrations()->with('slot.team', 'paymentMethod')->latest();
@@ -56,6 +73,10 @@ class EventShow extends Component
                 ->put('unpaid', $unpaid($this->event->registrations())->count()),
             'teams' => $this->event->teams,
             'positions' => $this->event->slots()->withCount(['registrations as taken' => fn ($q) => $q->whereIn('status', Registration::HOLDING)])->get(),
+            'lineup' => $this->openTeam
+                ? $this->event->slots()->where('event_team_id', $this->openTeam)
+                    ->with(['registrations' => fn ($q) => $q->whereIn('status', Registration::HOLDING)])->get()
+                : collect(),
             'collected' => $this->event->collected(),
             'target' => $this->event->target(),
         ])->title($this->event->title);
