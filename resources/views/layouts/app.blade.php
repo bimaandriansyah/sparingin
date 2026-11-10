@@ -25,28 +25,26 @@
             </main>
         </div>
 
-        <nav class="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_24px_-12px_rgb(0_0_0/0.15)]" aria-label="Menu admin">
-            <div class="grid grid-cols-4">
+        {{-- Floating pill nav: active item expands to icon + label, others are icon only. --}}
+        <nav class="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md bg-linear-to-t from-canvas via-canvas/90 to-transparent px-4 pt-6 pb-[max(0.75rem,env(safe-area-inset-bottom))]" aria-label="Menu admin">
+            <div class="flex items-center gap-1 rounded-full bg-white p-1.5 shadow-[0_8px_30px_-6px_rgb(0_0_0/0.25)] ring-1 ring-black/5">
                 @foreach ($nav as $item)
                     @php $active = request()->routeIs(...$item['match']); @endphp
-                    <a href="{{ route($item['route']) }}" wire:navigate @if ($active) aria-current="page" @endif
+                    <a href="{{ route($item['route']) }}" wire:navigate @if ($active) aria-current="page" @else aria-label="{{ $item['label'] }}" @endif
                        @class([
-                           'flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors',
-                           'text-zinc-950' => $active,
-                           'text-zinc-400 hover:text-zinc-700' => ! $active,
+                           'relative flex h-12 items-center justify-center gap-2 rounded-full transition-all duration-300',
+                           'flex-[2.2] bg-zinc-950 text-white' => $active,
+                           'flex-1 text-zinc-400 hover:text-zinc-700' => ! $active,
                        ])>
-                        <span @class([
-                            'relative flex h-8 w-14 items-center justify-center rounded-full transition-colors',
-                            'bg-zinc-950 text-white' => $active,
-                        ])>
-                            <flux:icon :name="$item['icon']" :variant="$active ? 'solid' : 'outline'" class="size-5" />
-                            @if (! empty($item['badge']))
-                                <span class="absolute -right-0.5 -top-1 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-bold leading-4 text-white ring-2 ring-white">
-                                    {{ $item['badge'] > 99 ? '99+' : $item['badge'] }}
-                                </span>
-                            @endif
-                        </span>
-                        {{ $item['label'] }}
+                        <flux:icon :name="$item['icon']" :variant="$active ? 'solid' : 'outline'" class="size-6 shrink-0" />
+                        @if ($active)
+                            <span class="text-sm font-semibold">{{ $item['label'] }}</span>
+                        @endif
+                        @if (! empty($item['badge']))
+                            <span @class(['absolute top-1 min-w-4 rounded-full bg-brand px-1 text-center text-[10px] font-bold leading-4 text-white ring-2', 'left-1/2 ml-1' => ! $active, 'left-8 ring-zinc-950' => $active, 'ring-white' => ! $active])>
+                                {{ $item['badge'] > 99 ? '99+' : $item['badge'] }}
+                            </span>
+                        @endif
                     </a>
                 @endforeach
             </div>
