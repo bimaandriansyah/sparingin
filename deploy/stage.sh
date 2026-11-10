@@ -24,7 +24,7 @@ rsync -a "$ROOT/" "$APP/" \
   --exclude '/deploy' --exclude '/tests' --exclude '/.env' --exclude '/.env.*' \
   --exclude '/public' --exclude '/storage' --exclude '/database/database.sqlite' \
   --exclude '/bootstrap/cache/*.php' --exclude '/*.md' --exclude '/phpunit.xml' \
-  --exclude '/package*.json' --exclude '/vite.config.js' --exclude '/.phpunit*' --exclude '/resources/brand'
+  --exclude '/package*.json' --exclude '/vite.config.js' --exclude '/.phpunit*' --exclude '/resources/brand' --exclude '.DS_Store'
 
 echo "→ Empty storage skeleton (writable dirs only, no local uploads/logs)"
 for d in app/private app/public framework/cache/data framework/sessions framework/views logs; do
@@ -35,7 +35,7 @@ echo "→ Installing production PHP dependencies (no dev)"
 (cd "$APP" && composer install --no-dev --optimize-autoloader --no-interaction --quiet)
 
 echo "→ Web root (public/ → public_html/)"
-rsync -a "$ROOT/public/" "$WEB/" --exclude 'storage' --exclude 'hot'
+rsync -a "$ROOT/public/" "$WEB/" --exclude 'storage' --exclude 'hot' --exclude '.DS_Store'
 mkdir -p "$WEB/storage"   # uploads land here (PUBLIC_STORAGE_PATH)
 cp "$ROOT/deploy/index.php" "$WEB/index.php"
 

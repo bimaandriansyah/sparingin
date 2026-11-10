@@ -44,3 +44,6 @@ yarn-error.log
 
 # macOS
 .DS_Store
+
+# Local FTP deploy credentials
+/deploy/ftp.env

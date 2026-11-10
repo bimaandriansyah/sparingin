@@ -136,6 +136,50 @@ Di File Manager, klik kanan → **Change Permissions**:
 
 ---
 
+## Deploy dari laptop (satu perintah, lewat FTP)
+
+Sama seperti CI/CD, tapi dijalankan dari laptop — dipakai selama GitHub Actions belum bisa jalan (mis. akun GitHub terkunci karena billing).
+
+**Sekali saja:**
+
+1. Install `lftp`:
+
+```bash
+brew install lftp
+```
+
+2. Isi kredensial FTP di `deploy/ftp.env` (file ini **tidak** ikut ke git):
+
+```bash
+cp deploy/ftp.env.example deploy/ftp.env
+```
+
+   Isi `FTP_HOST`, `FTP_USER`, `FTP_PASSWORD` dengan akun FTP **utama** cPanel (sama seperti secret GitHub).
+
+3. Pasang **Cron Job** `sparingin:post-deploy` di cPanel (lihat bagian *CI/CD → C* di bawah) supaya migrate jalan otomatis.
+
+**Setiap mau deploy:**
+
+```bash
+bash deploy/ftp-deploy.sh
+```
+
+Skrip ini: menjalankan semua test (batal kalau ada yang gagal) → build → upload **hanya file yang berubah** → memberi tanda ke cron untuk migrate + bersihkan cache.
+
+| Perintah | Fungsi |
+|---|---|
+| `bash deploy/ftp-deploy.sh --dry-run` | Lihat file apa saja yang akan di-upload/dihapus, tanpa mengirim apa pun |
+| `bash deploy/ftp-deploy.sh --skip-tests` | Lewati test (tidak disarankan) |
+
+Catatan:
+
+- **Deploy pertama** meng-upload semua file (±9.400 file termasuk `vendor`), bisa 10–30 menit tergantung koneksi. Berikutnya hanya file yang berubah.
+- Catatan "apa yang sudah ada di server" disimpan di `deploy/dist/last-deployed/`. Jangan dihapus; kalau terhapus, deploy berikutnya akan meng-upload semua file lagi (aman, hanya lebih lama).
+- Kalau FTPS gagal karena sertifikat (sertifikat hosting dibuat untuk nama server, bukan `ftp.domain`), set `FTP_VERIFY_CERT=no` di `deploy/ftp.env`.
+- `.env`, log, sesi, bukti transfer, dan `public_html/storage` di server **tidak pernah** diubah atau dihapus.
+
+---
+
 ## CI/CD otomatis (GitHub Actions + FTP)
 
 Setelah ini aktif, update cukup dengan **push ke branch `main`**:
