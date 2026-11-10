@@ -41,3 +41,6 @@ yarn-error.log
 
 # Deploy build output (zip with APP_KEY, staged vendor)
 /deploy/dist
+
+# macOS
+.DS_Store
