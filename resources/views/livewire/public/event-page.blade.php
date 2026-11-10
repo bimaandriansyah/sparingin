@@ -83,6 +83,21 @@
             </div>
         </section>
 
+        @if ($event->team_price !== null || $event->group_discounts)
+            @php $k = fn (int $v) => $v % 1000 ? 'Rp'.number_format($v, 0, ',', '.') : 'Rp'.($v / 1000).'K'; @endphp
+            <section class="flex items-start gap-3 rounded-2xl bg-brand-soft p-4 text-sm text-brand-dark">
+                <flux:icon.tag variant="mini" class="mt-0.5 shrink-0" />
+                <ul class="space-y-0.5">
+                    @if ($event->team_price !== null)
+                        <li>Booking 1 tim cukup <b>{{ $k($event->team_price) }}</b></li>
+                    @endif
+                    @foreach ($event->group_discounts ?? [] as $d)
+                        <li>Daftar <b>{{ $d['min'] }}+ orang</b> potong {{ $k($d['off']) }}/orang</li>
+                    @endforeach
+                </ul>
+            </section>
+        @endif
+
         @if ($event->description)
             <section class="card p-4" x-data="{ open: false }">
                 <h2 class="font-semibold">Deskripsi acara</h2>

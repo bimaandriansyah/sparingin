@@ -11,10 +11,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
-#[Fillable(['title', 'sport', 'starts_at', 'location', 'maps_url', 'poster_path', 'players_per_team', 'description', 'status', 'visibility'])]
+#[Fillable(['title', 'sport', 'starts_at', 'location', 'maps_url', 'poster_path', 'players_per_team', 'team_price', 'group_discounts', 'description', 'status', 'visibility'])]
 class Event extends Model
 {
     /** @use HasFactory<\Database\Factories\EventFactory> */
@@ -43,7 +44,7 @@ class Event extends Model
 
     protected function casts(): array
     {
-        return ['starts_at' => 'datetime', 'players_per_team' => 'integer'];
+        return ['starts_at' => 'datetime', 'players_per_team' => 'integer', 'team_price' => 'integer', 'group_discounts' => 'array'];
     }
 
     /**
@@ -138,9 +139,7 @@ class Event extends Model
     /** Rupiah actually received (paid_at set), whatever the payment method. */
     public function collected(): int
     {
-        return (int) $this->registrations()->whereNotNull('registrations.paid_at')->where('registrations.status', 'accepted')
-            ->join('event_slots', 'event_slots.id', '=', 'registrations.event_slot_id')
-            ->sum('event_slots.price');
+        return (int) $this->registrations()->whereNotNull('paid_at')->where('status', 'accepted')->sum('amount');
     }
 
     /** Rupiah if every slot is filled and paid. */
@@ -150,20 +149,67 @@ class Event extends Model
     }
 
     /**
-     * Register a guest player. Locks the slot row so two players can't take the last seat at once.
+     * Price a set of picked positions. Whole (empty) team + team_price → flat package;
+     * otherwise the best group tier (min people) takes `off` rupiah from every position.
+     *
+     * @param  Collection<int, EventSlot>  $slots  booker's position first
+     * @return array{amounts: array<int, int>, base: int, total: int, label: ?string}
+     */
+    public function quote(Collection $slots): array
+    {
+        $n = $slots->count();
+        $base = (int) $slots->sum('price');
+        $amounts = $slots->mapWithKeys(fn ($s) => [$s->id => (int) $s->price]);
+        $label = null;
+
+        $wholeTeam = $n > 1 && $slots->pluck('event_team_id')->unique()->count() === 1
+            && $n === EventSlot::where('event_team_id', $slots->first()->event_team_id)->count();
+        $tier = $n > 1 ? collect($this->group_discounts)->where('min', '<=', $n)->sortByDesc('min')->first() : null;
+
+        if ($wholeTeam && $this->team_price !== null && $this->team_price < $base) {
+            $share = intdiv($this->team_price, $n);
+            $amounts = $slots->values()->mapWithKeys(fn ($s, $i) => [$s->id => $share + ($i === 0 ? $this->team_price - $share * $n : 0)]);
+            $label = 'Paket 1 tim';
+        } elseif ($tier) {
+            $amounts = $amounts->map(fn ($p) => max(0, $p - (int) $tier['off']));
+            $label = "Promo grup {$tier['min']}+ orang";
+        }
+
+        return ['amounts' => $amounts->all(), 'base' => $base, 'total' => (int) $amounts->sum(), 'label' => $label];
+    }
+
+    /** Single-player shortcut for book(). */
+    public function register(EventSlot $slot, string $name, string $phone, ?string $proofPath, ?string $photoPath = null, ?int $paymentMethodId = null, ?string $paymentType = null): Registration
+    {
+        return $this->book([$slot->id => $name], $phone, $proofPath, $photoPath, $paymentMethodId, $paymentType);
+    }
+
+    /**
+     * Book one or more positions (max one team's worth) for a booker and their friends.
+     * Locks the slot rows so two people can't take the last seat at once.
+     *
+     * @param  array<int, string>  $players  slot id => player name; the first entry is the booker
+     * @param  'transfer'|'cash'|null  $paymentType  null when the booking is free
      *
      * @throws ValidationException
      */
-    /** @param  'transfer'|'cash'|null  $paymentType  null for free positions */
-    public function register(EventSlot $slot, string $name, string $phone, ?string $proofPath, ?string $photoPath = null, ?int $paymentMethodId = null, ?string $paymentType = null): Registration
+    public function book(array $players, string $phone, ?string $proofPath, ?string $photoPath = null, ?int $paymentMethodId = null, ?string $paymentType = null): Registration
     {
         $phone = Registration::normalizePhone($phone);
 
-        return DB::transaction(function () use ($slot, $name, $phone, $proofPath, $photoPath, $paymentMethodId, $paymentType) {
-            $slot = EventSlot::whereKey($slot->id)->where('event_id', $this->id)->lockForUpdate()->firstOrFail();
+        if (count($players) < 1 || count($players) > $this->players_per_team) {
+            throw ValidationException::withMessages(['slotIds' => "Maksimal {$this->players_per_team} posisi (1 tim) per pendaftaran."]);
+        }
+
+        return DB::transaction(function () use ($players, $phone, $proofPath, $photoPath, $paymentMethodId, $paymentType) {
+            $locked = EventSlot::whereIn('id', array_keys($players))->where('event_id', $this->id)->with('team')->lockForUpdate()->get()->keyBy('id');
+            if ($locked->count() !== count($players)) {
+                throw ValidationException::withMessages(['slotIds' => 'Posisi tidak ditemukan, pilih ulang.']);
+            }
+            $slots = collect(array_keys($players))->map(fn ($id) => $locked[$id]); // keep booker first
 
             if (! $this->isOpen()) {
-                throw ValidationException::withMessages(['slotId' => 'Pendaftaran event ini sudah ditutup.']);
+                throw ValidationException::withMessages(['slotIds' => 'Pendaftaran event ini sudah ditutup.']);
             }
 
             $existing = $this->registrations()->where('phone', $phone)->first();
@@ -172,29 +218,41 @@ class Event extends Model
                 throw ValidationException::withMessages(['phone' => 'Nomor WA ini sudah terdaftar di event ini.']);
             }
 
-            if ($slot->takenCount() >= $slot->quota) {
-                throw ValidationException::withMessages(['slotId' => "Posisi {$slot->name} {$slot->team->name} sudah diambil."]);
+            foreach ($slots as $slot) {
+                if ($slot->takenCount() >= $slot->quota) {
+                    throw ValidationException::withMessages(['slotIds' => "Posisi {$slot->name} {$slot->team->name} sudah diambil."]);
+                }
             }
 
-            // A rejected player may retry: reuse the row so the (event, phone) unique key holds.
+            // A rejected booker may retry: reuse the row so the (event, phone) unique key holds.
             if ($existing) {
                 $existing->proof_path && Storage::delete($existing->proof_path);
                 $existing->photo_path && Storage::disk('public')->delete($existing->photo_path);
+                $existing->members()->delete();
             }
 
-            $registration = $existing ?? $this->registrations()->make(['phone' => $phone]);
-            $registration->fill([
-                'event_slot_id' => $slot->id,
-                'name' => $name,
-                'proof_path' => $proofPath,
-                'photo_path' => $photoPath,
+            $amounts = $this->quote($slots)['amounts'];
+            $shared = [
                 'payment_method_id' => $paymentMethodId,
                 'payment_type' => $paymentType,
-                'status' => 'pending', // admin confirms every registration, free ones included
-                'token' => Str::random(40),
+                'status' => 'pending', // admin confirms every booking, free ones included
+            ];
+
+            $booker = $existing ?? $this->registrations()->make(['phone' => $phone]);
+            $first = $slots->first();
+            $booker->fill([...$shared,
+                'event_slot_id' => $first->id, 'booker_id' => null, 'name' => $players[$first->id], 'amount' => $amounts[$first->id],
+                'proof_path' => $proofPath, 'photo_path' => $photoPath, 'paid_at' => null, 'token' => Str::random(40),
             ])->save();
 
-            return $registration;
+            foreach ($slots->slice(1) as $slot) {
+                $this->registrations()->create([...$shared,
+                    'event_slot_id' => $slot->id, 'booker_id' => $booker->id, 'name' => $players[$slot->id], 'amount' => $amounts[$slot->id],
+                    'token' => Str::random(40),
+                ]);
+            }
+
+            return $booker;
         });
     }
 }

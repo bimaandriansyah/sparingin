@@ -1,7 +1,7 @@
 {{--
     Pitch with one card per position.
     Taken = white player card (photo or initials, name, position, "Lunas" tag); empty = dashed slot ("+" when selectable).
-    Parent Livewire component must have pick(id) when selectable.
+    Parent Livewire component must have pick(id) when selectable; `selected` is one id or a list of ids.
 --}}
 @props(['positions', 'selectable' => false, 'selected' => null])
 @php
@@ -29,7 +29,7 @@
                     </figcaption>
                 </figure>
             @elseif ($selectable)
-                @php $isSelected = $selected === $p->id; @endphp
+                @php $isSelected = in_array($p->id, (array) $selected); @endphp
                 <button type="button" wire:click="pick({{ $p->id }})" aria-pressed="{{ $isSelected ? 'true' : 'false' }}"
                         aria-label="Pilih posisi {{ $p->name }}, {{ $short($p->price) }}"
                         @class([

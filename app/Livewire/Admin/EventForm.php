@@ -43,6 +43,12 @@ class EventForm extends Component
 
     public int|string $player_price = 50000;
 
+    /** Promo: flat total for booking a whole team ('' = none). */
+    public int|string|null $team_price = '';
+
+    /** Promo: group tiers, each ['min' => people, 'off' => rupiah off per person]. */
+    public array $discounts = [];
+
     public $poster;
 
     /** @var list<array{id: ?int, name: string, color: string, formation: string}> */
@@ -64,6 +70,8 @@ class EventForm extends Component
             $this->gk_price = (int) $event->slots()->where('name', 'GK')->value('price');
             $this->player_price = (int) $event->slots()->where('name', '!=', 'GK')->value('price');
             $this->teams = $event->teams->map->only('id', 'name', 'formation')->all();
+            $this->team_price = $event->team_price ?? '';
+            $this->discounts = $event->group_discounts ?? [];
             $this->locked = $event->registrations()->exists();
         } else {
             $this->community = $community;
@@ -151,6 +159,10 @@ class EventForm extends Component
             'gk_price' => 'required|integer|min:0|max:10000000',
             'player_price' => 'required|integer|min:0|max:10000000',
             'poster' => 'nullable|image|max:4096',
+            'team_price' => 'nullable|integer|min:0|max:100000000',
+            'discounts' => 'array|max:5',
+            'discounts.*.min' => 'required|integer|distinct|min:2|max:'.$players,
+            'discounts.*.off' => 'required|integer|min:1|max:10000000',
             'teams' => 'required|array|min:1|max:'.self::MAX_TEAMS,
             'teams.*.name' => 'required|string|max:30|distinct:ignore_case',
             'teams.*.formation' => ['required', 'string', function ($attribute, $value, $fail) use ($players) {
@@ -160,9 +172,11 @@ class EventForm extends Component
             }],
         ], [
             'teams.*.name.distinct' => 'Nama tim tidak boleh sama.',
+            'discounts.*.min.distinct' => 'Jumlah orang promo tidak boleh sama.',
         ], [
             'gk_price' => 'iuran kiper', 'player_price' => 'iuran pemain', 'maps_url' => 'link Maps',
             'players_per_team' => 'jumlah pemain', 'teams.*.name' => 'nama tim',
+            'team_price' => 'harga paket 1 tim', 'discounts.*.min' => 'minimal orang', 'discounts.*.off' => 'potongan',
         ]);
 
         // Re-check on the server: registrations may have arrived since the form was opened.
@@ -171,6 +185,9 @@ class EventForm extends Component
         $event = DB::transaction(function () use ($data) {
             $event = $this->event ?? $this->community->events()->make();
             $fields = collect($data)->only('title', 'starts_at', 'location', 'maps_url', 'description', 'visibility')->all();
+            $fields['team_price'] = $data['team_price'] === '' || $data['team_price'] === null ? null : (int) $data['team_price'];
+            $fields['group_discounts'] = collect($data['discounts'] ?? [])
+                ->map(fn ($d) => ['min' => (int) $d['min'], 'off' => (int) $d['off']])->sortBy('min')->values()->all() ?: null;
             if (! $this->locked) {
                 $fields += ['sport' => $data['sport'], 'players_per_team' => $data['players_per_team']];
             }
@@ -200,6 +217,19 @@ class EventForm extends Component
         });
 
         $this->redirectRoute('admin.events.show', $event, navigate: true);
+    }
+
+    public function addDiscount(): void
+    {
+        if (count($this->discounts) < 5) {
+            $this->discounts[] = ['min' => 2 + count($this->discounts), 'off' => 5000];
+        }
+    }
+
+    public function removeDiscount(int $i): void
+    {
+        unset($this->discounts[$i]);
+        $this->discounts = array_values($this->discounts);
     }
 
     public function render()

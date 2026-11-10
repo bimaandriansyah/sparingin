@@ -15,12 +15,12 @@ class RegistrationStatus extends Component
 
     public function mount(string $token): void
     {
-        $this->registration = Registration::where('token', $token)->with('event.community', 'slot.team')->firstOrFail();
+        $this->registration = Registration::where('token', $token)->with('event.community', 'slot.team', 'members.slot.team')->firstOrFail();
     }
 
     public function render()
     {
-        $this->registration->refresh();
+        $this->registration->refresh()->load('members.slot.team');
 
         return view('livewire.public.registration-status');
     }

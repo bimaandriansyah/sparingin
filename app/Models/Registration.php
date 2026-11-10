@@ -7,14 +7,19 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
+ * A group booking is one booker row (phone, proof, payment) plus member rows with booker_id set.
+ * Status and payment always change for the whole group; admin lists show bookers only.
+ *
  * Two independent axes:
  *  - status: pending → accepted | rejected (is the player in?)
  *  - paid_at: null = belum lunas, set = lunas (cash players may pay after the match)
  */
-#[Fillable(['event_slot_id', 'name', 'phone', 'photo_path', 'proof_path', 'payment_method_id', 'payment_type', 'status', 'paid_at', 'token'])]
+#[Fillable(['event_slot_id', 'booker_id', 'amount', 'name', 'phone', 'photo_path', 'proof_path', 'payment_method_id', 'payment_type', 'status', 'paid_at', 'token'])]
 #[Hidden(['phone', 'proof_path', 'token'])]
 class Registration extends Model
 {
@@ -25,7 +30,29 @@ class Registration extends Model
 
     protected function casts(): array
     {
-        return ['paid_at' => 'datetime'];
+        return ['paid_at' => 'datetime', 'amount' => 'integer'];
+    }
+
+    public function booker(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'booker_id');
+    }
+
+    public function members(): HasMany
+    {
+        return $this->hasMany(self::class, 'booker_id');
+    }
+
+    /** The booker plus everyone booked with them. */
+    public function group(): Collection
+    {
+        return new Collection([$this, ...$this->members]);
+    }
+
+    /** Rupiah owed by the whole booking (after promos). */
+    public function groupTotal(): int
+    {
+        return $this->amount + (int) $this->members->sum('amount');
     }
 
     public function event(): BelongsTo
@@ -65,17 +92,23 @@ class Registration extends Model
         return static::whereHas('event.community', fn ($q) => $q->where('user_id', $user->id));
     }
 
-    /** Registrations waiting for this admin's confirmation, across all their communities. */
+    /** Bookings (booker rows) waiting for this admin's confirmation, across all their communities. */
     public static function pendingFor(User $user): Builder
     {
-        return static::ownedBy($user)->where('status', 'pending');
+        return static::ownedBy($user)->whereNull('booker_id')->where('status', 'pending');
     }
 
-    /** Accepted players who still owe money (e.g. paying cash after the match). */
+    /** Accepted bookings that still owe money (e.g. paying cash after the match). */
     public static function unpaidFor(User $user): Builder
     {
-        return static::ownedBy($user)->where('status', 'accepted')->whereNull('paid_at')
-            ->whereHas('slot', fn ($q) => $q->where('price', '>', 0));
+        return static::owing(static::ownedBy($user));
+    }
+
+    /** Narrow a query to accepted, unpaid booker rows whose group costs something. */
+    public static function owing(Builder|HasMany $query): Builder|HasMany
+    {
+        return $query->whereNull('booker_id')->where('status', 'accepted')->whereNull('paid_at')
+            ->where(fn ($q) => $q->where('amount', '>', 0)->orWhereHas('members', fn ($m) => $m->where('amount', '>', 0)));
     }
 
     /**
@@ -89,33 +122,38 @@ class Registration extends Model
         abort_unless(array_key_exists($status, self::STATUSES), 422);
 
         return DB::transaction(function () use ($status) {
-            $fresh = static::whereKey($this->id)->with('slot')->lockForUpdate()->firstOrFail();
+            $fresh = static::whereKey($this->booker_id ?? $this->id)->lockForUpdate()->firstOrFail();
+            $group = $fresh->group()->load('slot.team');
 
             if ($fresh->status === 'rejected' && $status !== 'rejected') {
-                $slot = EventSlot::whereKey($fresh->event_slot_id)->lockForUpdate()->firstOrFail();
-                if ($slot->takenCount() >= $slot->quota) {
-                    return "Posisi {$slot->name} {$slot->team->name} sudah diambil pemain lain.";
+                foreach ($group as $reg) {
+                    $slot = EventSlot::whereKey($reg->event_slot_id)->lockForUpdate()->firstOrFail();
+                    if ($slot->takenCount() >= $slot->quota) {
+                        return "Posisi {$slot->name} {$reg->slot->team->name} sudah diambil pemain lain.";
+                    }
                 }
             }
 
             $paidAt = match (true) {
                 $status === 'rejected' => null,
-                $status === 'accepted' && ($fresh->payment_type === 'transfer' || $fresh->slot->price === 0) => $fresh->paid_at ?? now(),
+                $status === 'accepted' && ($fresh->payment_type === 'transfer' || $fresh->groupTotal() === 0) => $fresh->paid_at ?? now(),
                 default => $fresh->paid_at,
             };
 
-            $fresh->update(['status' => $status, 'paid_at' => $paidAt]);
+            static::whereIn('id', $group->modelKeys())->update(['status' => $status, 'paid_at' => $paidAt]);
             $this->forceFill(['status' => $status, 'paid_at' => $paidAt]);
 
             return null;
         });
     }
 
-    /** Mark (or unmark) payment received — independent of acceptance, works after the event too. */
+    /** Mark (or unmark) the whole booking paid — independent of acceptance, works after the event too. */
     public function markPaid(bool $paid = true): void
     {
         abort_if($this->status === 'rejected', 422);
-        $this->update(['paid_at' => $paid ? ($this->paid_at ?? now()) : null]);
+        $paidAt = $paid ? ($this->paid_at ?? now()) : null;
+        static::where('id', $this->booker_id ?? $this->id)->orWhere('booker_id', $this->booker_id ?? $this->id)->update(['paid_at' => $paidAt]);
+        $this->paid_at = $paidAt;
     }
 
     public function statusLabel(): string

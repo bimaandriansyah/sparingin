@@ -60,12 +60,12 @@
                                 <x-avatar :name="$reg->name" :src="$reg->photoUrl()" :tone="$reg->isPaid() ? 'dark' : 'soft'" />
                                 <div class="min-w-0 flex-1">
                                     <div class="truncate text-sm font-semibold">{{ $reg->name }}</div>
-                                    <div class="text-xs text-zinc-500">{{ $p->name }} · {{ $reg->status === 'pending' ? 'Menunggu' : 'Diterima' }}</div>
+                                    <div class="truncate text-xs text-zinc-500">{{ $p->name }} · {{ $reg->status === 'pending' ? 'Menunggu' : 'Diterima' }}@if ($reg->booker) · via {{ $reg->booker->name }}@endif</div>
                                 </div>
-                                @if ($p->price > 0)
+                                @if ($reg->amount > 0)
                                     <span @class(['chip', 'bg-green-50 text-green-700' => $reg->isPaid(), 'bg-orange-50 text-orange-700' => ! $reg->isPaid()])>{{ $reg->isPaid() ? 'Lunas' : 'Belum lunas' }}</span>
                                 @endif
-                                <a href="https://wa.me/{{ $reg->phone }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon min-h-10 w-10" aria-label="Chat {{ $reg->name }} via WhatsApp">
+                                <a href="https://wa.me/{{ $reg->phone ?? $reg->booker?->phone }}" target="_blank" rel="noopener" class="btn btn-secondary btn-icon min-h-10 w-10" aria-label="Chat {{ $reg->booker?->name ?? $reg->name }} via WhatsApp">
                                     <x-icon-whatsapp class="size-5 text-green-600" />
                                 </a>
                             </div>

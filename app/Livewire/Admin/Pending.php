@@ -36,7 +36,7 @@ class Pending extends Component
         $query = $this->tab === 'lunas' ? Registration::unpaidFor($user) : Registration::pendingFor($user);
 
         return view('livewire.admin.pending', [
-            'registrations' => $query->with('event.community', 'slot.team', 'paymentMethod')->oldest()->get(),
+            'registrations' => $query->with('event.community', 'slot.team', 'paymentMethod', 'members.slot.team')->oldest()->get(),
             'pendingCount' => Registration::pendingFor($user)->count(),
             'unpaidCount' => Registration::unpaidFor($user)->count(),
         ]);

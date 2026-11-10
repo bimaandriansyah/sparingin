@@ -91,6 +91,40 @@
                 <flux:input wire:model="gk_price" type="number" inputmode="numeric" min="0" step="1000" label="Iuran kiper (Rp)" />
                 <flux:input wire:model="player_price" type="number" inputmode="numeric" min="0" step="1000" label="Iuran pemain (Rp)" />
             </div>
+
+            {{-- Promo (optional) --}}
+            <div class="space-y-3 rounded-2xl bg-zinc-50 p-3 ring-1 ring-zinc-100">
+                <div class="flex items-center gap-2">
+                    <flux:icon.tag variant="mini" class="text-brand-dark" />
+                    <h3 class="text-sm font-semibold">Promo <span class="font-normal text-zinc-500">· opsional</span></h3>
+                </div>
+                <flux:input wire:model="team_price" type="number" inputmode="numeric" min="0" step="1000" label="Harga paket 1 tim (Rp)"
+                            description="Total untuk yang booking 1 tim penuh. Kosongkan jika tidak ada." placeholder="Contoh: 350000" />
+
+                <div class="space-y-2">
+                    <p class="text-sm font-medium">Diskon grup</p>
+                    @foreach ($discounts as $i => $d)
+                        <div class="flex items-start gap-2" wire:key="disc-{{ $i }}">
+                            <div class="w-16 shrink-0">
+                                <flux:input wire:model="discounts.{{ $i }}.min" type="number" inputmode="numeric" min="2" aria-label="Minimal orang" placeholder="Min. orang" />
+                                <flux:error name="discounts.{{ $i }}.min" />
+                            </div>
+                            <span class="mt-3 shrink-0 text-xs text-zinc-500">orang, potong</span>
+                            <div class="min-w-0 flex-1">
+                                <flux:input wire:model="discounts.{{ $i }}.off" type="number" inputmode="numeric" min="0" step="1000" aria-label="Potongan per orang (Rp)" placeholder="Rp/orang" />
+                                <flux:error name="discounts.{{ $i }}.off" />
+                            </div>
+                            <button type="button" wire:click="removeDiscount({{ $i }})" class="btn btn-secondary btn-icon min-h-11 w-11" aria-label="Hapus diskon">
+                                <flux:icon.x-mark variant="micro" />
+                            </button>
+                        </div>
+                    @endforeach
+                    @if (count($discounts) < 5)
+                        <button type="button" wire:click="addDiscount" class="btn btn-secondary w-full text-sm"><flux:icon.plus variant="micro" /> Tambah diskon grup</button>
+                    @endif
+                    <p class="text-xs text-zinc-500">Potongan per orang jika daftar bareng minimal sekian orang, mis. 2 orang potong Rp5.000/orang. Paket 1 tim tidak digabung dengan diskon grup.</p>
+                </div>
+            </div>
         </section>
 
         {{-- Teams --}}

@@ -78,7 +78,7 @@ class RegistrationFlowTest extends TestCase
     public function test_position_taken_and_duplicate_phone_are_enforced(): void
     {
         $this->register('GK', 'A', '081200000001')->assertHasNoErrors();
-        $this->register('GK', 'B', '081200000002')->assertHasErrors('slotId');
+        $this->register('GK', 'B', '081200000002')->assertHasErrors('slotIds');
         $this->register('CF', 'A lagi', '+6281200000001')->assertHasErrors('phone');
         $this->assertSame(1, Registration::count());
     }
@@ -88,7 +88,7 @@ class RegistrationFlowTest extends TestCase
         Livewire::test(JoinEvent::class, ['event' => $this->event])
             ->set('name', 'Budi')->set('phone', '081234567890')
             ->call('next')->assertSet('step', 2)
-            ->call('next')->assertHasErrors('slotId')->assertSet('step', 2)
+            ->call('next')->assertHasErrors('slotIds')->assertSet('step', 2)
             ->call('pick', $this->event->slots()->where('name', 'CF')->value('id'))
             ->call('next')->assertSet('step', 3)
             ->call('register')->assertHasErrors(['payment', 'proof'])

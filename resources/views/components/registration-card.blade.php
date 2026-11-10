@@ -1,10 +1,13 @@
 {{--
     Admin registration card. Parent Livewire component must have setStatus(id, status) and setPaid(id, bool).
     Acceptance (Diterima) and payment (Lunas) are separate: cash players can be accepted and pay later.
+    $r is a booker row; group members (eager-load members.slot.team) are listed and act together.
 --}}
 @props(['r', 'showEvent' => false])
 @php
-    $free = $r->slot->price === 0;
+    $total = $r->groupTotal();
+    $free = $total === 0;
+    $friends = $r->members->count();
     $statusChip = [
         'pending' => ['bg-amber-50 text-amber-700', 'clock', 'Menunggu'],
         'accepted' => ['bg-blue-50 text-blue-700', 'user-plus', 'Diterima'],
@@ -17,16 +20,27 @@
     <div class="flex items-center gap-3">
         <x-avatar :name="$r->name" :src="$r->photoUrl()" :tone="$r->isPaid() ? 'dark' : 'soft'" />
         <div class="min-w-0 flex-1">
-            <h3 class="truncate font-semibold">{{ $r->name }}</h3>
+            <h3 class="truncate font-semibold">{{ $r->name }}@if ($friends) <span class="font-normal text-zinc-500">+ {{ $friends }} teman</span>@endif</h3>
             <p class="text-xs text-zinc-500">
                 {{ $r->slot->team->name }} · {{ $r->slot->name }} · {{ $r->created_at->diffForHumans() }}
             </p>
         </div>
         <div class="flex flex-col items-end gap-1 text-right">
-            <div class="stat-value text-sm">{{ $free ? 'Gratis' : 'Rp'.number_format($r->slot->price, 0, ',', '.') }}</div>
+            <div class="stat-value text-sm">{{ $free ? 'Gratis' : 'Rp'.number_format($total, 0, ',', '.') }}</div>
             <span class="chip {{ $statusChip[0] }}"><flux:icon :name="$statusChip[1]" variant="micro" />{{ $statusChip[2] }}</span>
         </div>
     </div>
+
+    @if ($friends)
+        <ul class="space-y-1 rounded-2xl bg-zinc-50 px-3 py-2 text-xs ring-1 ring-zinc-100">
+            @foreach ($r->group() as $m)
+                <li class="flex items-center justify-between gap-2">
+                    <span class="truncate"><b class="inline-block w-9">{{ $m->slot->name }}</b>{{ $m->name }}</span>
+                    <span class="shrink-0 text-zinc-500">{{ $m->slot->team->name }}</span>
+                </li>
+            @endforeach
+        </ul>
+    @endif
 
     {{-- Payment line: method + paid state --}}
     @if (! $free)
@@ -89,7 +103,7 @@
         </div>
 
         <div x-show="confirming" x-cloak class="space-y-2 rounded-2xl bg-red-50 p-3" role="alertdialog" aria-label="Konfirmasi tolak {{ $r->name }}">
-            <p class="text-sm text-red-800"><b>Tolak pendaftaran {{ $r->name }}?</b> Posisinya akan dibuka lagi untuk pemain lain.</p>
+            <p class="text-sm text-red-800"><b>Tolak pendaftaran {{ $r->name }}{{ $friends ? " dan {$friends} teman" : '' }}?</b> {{ $friends ? 'Semua posisinya' : 'Posisinya' }} akan dibuka lagi untuk pemain lain.</p>
             <div class="flex gap-2">
                 <button type="button" class="btn btn-secondary min-h-11 flex-1 text-sm" x-on:click="confirming = false">Batal</button>
                 <button type="button" class="btn min-h-11 flex-1 bg-red-600 text-sm text-white hover:bg-red-700"

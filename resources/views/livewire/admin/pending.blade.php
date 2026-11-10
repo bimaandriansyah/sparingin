@@ -23,7 +23,7 @@
             </div>
             <div class="text-right">
                 <p class="text-sm font-medium text-white/80">{{ $tab === 'lunas' ? 'Belum dibayar' : 'Total iuran' }}</p>
-                <p class="mt-1 text-xl font-bold tabular-nums">Rp{{ number_format($registrations->sum(fn ($r) => $r->slot->price), 0, ',', '.') }}</p>
+                <p class="mt-1 text-xl font-bold tabular-nums">Rp{{ number_format($registrations->sum(fn ($r) => $r->groupTotal()), 0, ',', '.') }}</p>
             </div>
         </section>
     @endif

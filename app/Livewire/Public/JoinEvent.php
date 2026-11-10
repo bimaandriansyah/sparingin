@@ -32,7 +32,11 @@ class JoinEvent extends Component
 
     public int $team = 0;
 
-    public ?int $slotId = null;
+    /** Picked positions in pick order; the first is the booker's own. Max one team's worth. */
+    public array $slotIds = [];
+
+    /** Friends' names keyed by slot id (the booker's name is $name). */
+    public array $names = [];
 
     /** 'cash' or a community payment method id (as string). */
     public ?string $payment = null;
@@ -48,8 +52,33 @@ class JoinEvent extends Component
 
     public function pick(int $slotId): void
     {
-        $this->slotId = $slotId;
-        $this->resetErrorBag('slotId');
+        $this->resetErrorBag('slotIds');
+
+        if (in_array($slotId, $this->slotIds, true)) {
+            $this->slotIds = array_values(array_diff($this->slotIds, [$slotId]));
+            unset($this->names[$slotId]);
+
+            return;
+        }
+
+        if (count($this->slotIds) >= $this->event->players_per_team) {
+            $this->addError('slotIds', "Maksimal {$this->event->players_per_team} posisi (1 tim) per pendaftaran.");
+
+            return;
+        }
+
+        $this->slotIds[] = $slotId;
+    }
+
+    /** Take every position of the current team (only offered while the team is still empty). */
+    public function pickTeam(): void
+    {
+        $team = $this->event->teams[$this->team] ?? null;
+        abort_unless($team, 404);
+        $ids = $team->slots()->pluck('id')->all();
+        $this->slotIds = $ids;
+        $this->names = array_intersect_key($this->names, array_flip($ids));
+        $this->resetErrorBag('slotIds');
     }
 
     public function next(): void
@@ -79,7 +108,14 @@ class JoinEvent extends Component
                 'phone.regex' => 'Format nomor WA tidak valid, contoh: 08123456789.',
                 'photo.image' => 'Foto harus berupa gambar.',
             ], ['name' => 'nama panggilan', 'phone' => 'nomor WhatsApp', 'photo' => 'foto']),
-            2 => $this->validate(['slotId' => 'required|integer'], ['slotId.required' => 'Pilih posisi dulu di lapangan.']),
+            2 => $this->validate([
+                'slotIds' => 'required|array|min:1|max:'.$this->event->players_per_team,
+                ...collect($this->slotIds)->slice(1)->mapWithKeys(fn ($id) => ["names.$id" => 'required|string|max:60'])->all(),
+            ], [
+                'slotIds.required' => 'Pilih posisi dulu di lapangan.',
+                'slotIds.max' => 'Maksimal :max posisi (1 tim) per pendaftaran.',
+                'names.*.required' => 'Nama pemain wajib diisi.',
+            ]),
             3 => $this->validate([
                 'payment' => $this->needsPayment() ? 'required|string' : 'nullable',
                 'proof' => $this->needsProof() ? 'required|image|max:5120' : 'nullable',
@@ -92,15 +128,18 @@ class JoinEvent extends Component
         };
     }
 
-    private function pickedSlot()
+    /** Picked slots in pick order (booker first). */
+    private function pickedSlots()
     {
-        return $this->slotId ? $this->event->slots()->with('team')->find($this->slotId) : null;
+        $slots = $this->event->slots()->with('team')->whereIn('id', $this->slotIds)->get()->keyBy('id');
+
+        return collect($this->slotIds)->filter(fn ($id) => $slots->has($id))->map(fn ($id) => $slots[$id])->values();
     }
 
-    /** Free positions skip payment entirely. */
+    /** Free bookings skip payment entirely. */
     private function needsPayment(): bool
     {
-        return ($this->pickedSlot()?->price ?? 0) > 0;
+        return $this->event->quote($this->pickedSlots())['total'] > 0;
     }
 
     /** Proof is only needed for transfers; cash is paid at the venue. */
@@ -126,14 +165,17 @@ class JoinEvent extends Component
         }
         RateLimiter::hit($key, 600);
 
-        $slot = $this->event->slots()->findOrFail($this->slotId);
+        $players = [];
+        foreach ($this->slotIds as $i => $id) {
+            $players[(int) $id] = $i === 0 ? $this->name : trim($this->names[$id]);
+        }
         $type = $this->needsPayment() ? ($this->payment === 'cash' ? 'cash' : 'transfer') : null;
         $method = $type === 'transfer' ? $this->event->community->paymentMethods()->findOrFail((int) $this->payment) : null;
         $proofPath = $type === 'transfer' ? $this->proof->store('proofs') : null; // private disk
         $photoPath = $this->photo ? PublicImage::store($this->photo, 'player-photos') : null;
 
         try {
-            $registration = $this->event->register($slot, $this->name, $this->phone, $proofPath, $photoPath, $method?->id, $type);
+            $registration = $this->event->book($players, $this->phone, $proofPath, $photoPath, $method?->id, $type);
         } catch (ValidationException $e) {
             $proofPath && Storage::delete($proofPath);
             $photoPath && Storage::disk('public')->delete($photoPath);
@@ -153,8 +195,10 @@ class JoinEvent extends Component
 
         return view('livewire.public.join-event', [
             'teams' => $teams,
-            'positions' => $current ? $current->slots()->with(['registrations' => fn ($q) => $q->whereIn('status', Registration::HOLDING)])->get() : collect(),
-            'picked' => $this->pickedSlot(),
+            'positions' => $positions = $current ? $current->slots()->with(['registrations' => fn ($q) => $q->whereIn('status', Registration::HOLDING)])->get() : collect(),
+            'teamEmpty' => $positions->isNotEmpty() && $positions->every(fn ($p) => $p->registrations->isEmpty()),
+            'picked' => $picked = $this->pickedSlots(),
+            'quote' => $this->event->quote($picked),
             'paymentMethods' => $this->event->community->paymentMethods,
         ])->title('Bergabung · '.$this->event->title);
     }

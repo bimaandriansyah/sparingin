@@ -59,8 +59,8 @@ class EventShow extends Component
 
     public function render()
     {
-        $registrations = $this->event->registrations()->with('slot.team', 'paymentMethod')->latest();
-        $unpaid = fn ($q) => $q->where('status', 'accepted')->whereNull('paid_at')->whereHas('slot', fn ($s) => $s->where('price', '>', 0));
+        $registrations = $this->event->registrations()->whereNull('booker_id')->with('slot.team', 'paymentMethod', 'members.slot.team')->latest();
+        $unpaid = fn ($q) => Registration::owing($q);
         match ($this->filter) {
             'unpaid' => $unpaid($registrations),
             'all' => null,
@@ -69,13 +69,13 @@ class EventShow extends Component
 
         return view('livewire.admin.event-show', [
             'registrations' => $registrations->get(),
-            'counts' => $this->event->registrations()->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status')
+            'counts' => $this->event->registrations()->whereNull('booker_id')->selectRaw('status, count(*) as total')->groupBy('status')->pluck('total', 'status')
                 ->put('unpaid', $unpaid($this->event->registrations())->count()),
             'teams' => $this->event->teams,
             'positions' => $this->event->slots()->withCount(['registrations as taken' => fn ($q) => $q->whereIn('status', Registration::HOLDING)])->get(),
             'lineup' => $this->openTeam
                 ? $this->event->slots()->where('event_team_id', $this->openTeam)
-                    ->with(['registrations' => fn ($q) => $q->whereIn('status', Registration::HOLDING)])->get()
+                    ->with(['registrations' => fn ($q) => $q->whereIn('status', Registration::HOLDING)->with('booker')])->get()
                 : collect(),
             'collected' => $this->event->collected(),
             'target' => $this->event->target(),
