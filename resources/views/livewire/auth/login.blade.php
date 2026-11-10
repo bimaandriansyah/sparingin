@@ -7,7 +7,9 @@
 
         <x-passkey-verify />
 
-        <form method="POST" action="{{ route('login.store') }}" class="flex flex-col gap-6" x-data="{ submitting: false }" x-on:submit="submitting = true" x-on:pageshow.window="submitting = false">
+        <form method="POST" action="{{ route('login.store') }}" class="flex flex-col gap-6" x-data="ajaxForm" x-on:submit.prevent="submit" x-on:pageshow.window="submitting = false"
+              data-redirect="{{ route('dashboard') }}" data-two-factor="{{ route('two-factor.login') }}" novalidate>
+            <x-ajax-error field="form" class="mt-0! rounded-xl bg-red-50 px-3 py-2" />
             @csrf
 
             <!-- Phone -->
@@ -22,6 +24,7 @@
                 autocomplete="tel"
                 placeholder="08123456789"
             />
+            <x-ajax-error field="phone" />
 
             <!-- Password -->
             <div>
@@ -34,8 +37,8 @@
                     :placeholder="__('Password')"
                     viewable
                 />
-
             </div>
+            <x-ajax-error field="password" />
 
             <!-- Remember Me -->
             <flux:checkbox name="remember" :label="__('Remember me')" :checked="old('remember')" />

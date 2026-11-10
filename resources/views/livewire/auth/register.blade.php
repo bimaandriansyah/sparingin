@@ -5,7 +5,9 @@
         <!-- Session Status -->
         <x-auth-session-status class="text-center" :status="session('status')" />
 
-        <form method="POST" action="{{ route('register.store') }}" class="flex flex-col gap-6" x-data="{ submitting: false }" x-on:submit="submitting = true" x-on:pageshow.window="submitting = false">
+        <form method="POST" action="{{ route('register.store') }}" class="flex flex-col gap-6" x-data="ajaxForm" x-on:submit.prevent="submit" x-on:pageshow.window="submitting = false"
+              data-redirect="{{ route('dashboard') }}" data-two-factor="{{ route('two-factor.login') }}" novalidate>
+            <x-ajax-error field="form" class="mt-0! rounded-xl bg-red-50 px-3 py-2" />
             @csrf
             <!-- Name -->
             <flux:input
@@ -18,6 +20,7 @@
                 autocomplete="name"
                 :placeholder="__('Full name')"
             />
+            <x-ajax-error field="name" />
 
             <!-- Phone -->
             <flux:input
@@ -30,6 +33,7 @@
                 autocomplete="tel"
                 placeholder="08123456789"
             />
+            <x-ajax-error field="phone" />
 
             <!-- Password -->
             <flux:input
@@ -42,6 +46,7 @@
                 passwordrules="{{ \Illuminate\Validation\Rules\Password::defaults()->toPasswordRulesString() }}"
                 viewable
             />
+            <x-ajax-error field="password" />
 
             <!-- Confirm Password -->
             <flux:input
@@ -54,6 +59,7 @@
                 passwordrules="{{ \Illuminate\Validation\Rules\Password::defaults()->toPasswordRulesString() }}"
                 viewable
             />
+            <x-ajax-error field="password_confirmation" />
 
             <div class="flex items-center justify-end">
                 <x-submit-button data-test="register-user-button" loading="Membuat akun…">{{ __('Create account') }}</x-submit-button>

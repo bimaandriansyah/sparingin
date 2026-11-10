@@ -90,4 +90,13 @@ class SecurityTest extends TestCase
         $this->get(route('admin.pending'))->assertRedirect(route('login'));
         $this->get(route('admin.events.edit', $this->event))->assertRedirect(route('login'));
     }
+
+    public function test_failed_login_and_register_return_json_errors_for_background_form(): void
+    {
+        $this->postJson(route('login.store'), ['phone' => '081234567890', 'password' => 'salah-sekali'])
+            ->assertStatus(422)->assertJsonValidationErrors('phone');
+
+        $this->postJson(route('register.store'), ['name' => '', 'phone' => '0812', 'password' => 'a', 'password_confirmation' => 'b'])
+            ->assertStatus(422)->assertJsonValidationErrors(['name', 'password']);
+    }
 }
